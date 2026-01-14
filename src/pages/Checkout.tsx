@@ -1,12 +1,20 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ChevronLeft, Truck, Building2, CheckCircle } from 'lucide-react';
+import { format } from "date-fns";
+import { ChevronLeft, Truck, Building2, Store, CheckCircle, Calendar as CalendarIcon } from 'lucide-react';
+import { cn } from "@/lib/utils";
 import TopBar from '@/components/layout/TopBar';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useCart } from '@/context/CartContext';
 import { useToast } from '@/hooks/use-toast';
 
@@ -25,6 +33,8 @@ const WILAYAS = [
   "56 - جانت", "57 - المغير", "58 - المنيعة"
 ];
 
+const STORES = ["الأغواط", "آفلو"];
+
 const Checkout = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -32,21 +42,44 @@ const Checkout = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderPlaced, setOrderPlaced] = useState(false);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    firstName: string;
+    phone: string;
+    wilaya: string;
+    deliveryMethod: string;
+    address: string;
+    store: string;
+    pickupDate?: Date;
+  }>({
     firstName: '',
     phone: '',
     wilaya: '',
     deliveryMethod: 'home',
-    address: ''
+    address: '',
+    store: '',
+    pickupDate: undefined,
   });
 
-  const deliveryFee = formData.deliveryMethod === 'home' ? 500 : 300;
+  const getDeliveryFee = () => {
+    switch (formData.deliveryMethod) {
+      case 'home':
+        return 500;
+      case 'bureau':
+        return 300;
+      case 'pickup':
+        return 0;
+      default:
+        return 500;
+    }
+  };
+
+  const deliveryFee = getDeliveryFee()
   const finalTotal = totalPrice + deliveryFee;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.firstName || !formData.phone || !formData.wilaya) {
+    if (!formData.firstName || !formData.phone || (formData.deliveryMethod !== 'pickup' && !formData.wilaya)) {
       toast({
         title: "خطأ",
         description: "يرجى ملء جميع الحقول المطلوبة",
@@ -62,6 +95,25 @@ const Checkout = () => {
         variant: "destructive"
       });
       return;
+    }
+
+    if (formData.deliveryMethod === 'pickup') {
+      if (!formData.store) {
+        toast({
+          title: "خطأ",
+          description: "يرجى اختيار متجر الاستلام",
+          variant: "destructive"
+        });
+        return;
+      }
+      if (!formData.pickupDate) {
+        toast({
+          title: "خطأ",
+          description: "يرجى اختيار تاريخ الاستلام",
+          variant: "destructive"
+        });
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -179,12 +231,13 @@ const Checkout = () => {
                   </div>
 
                   {/* Wilaya Selection */}
-                  <div className="bg-card rounded-xl p-6 border border-border">
+                  <div className={`bg-card rounded-xl border border-border transition-all duration-500 ease-in-out overflow-hidden ${formData.deliveryMethod !== 'pickup' ? 'max-h-96 p-6' : 'max-h-0 p-0 border-0'}`}>
                     <h2 className="text-xl font-arabic font-semibold mb-4">الولاية <span className="text-primary">*</span></h2>
                     
                     <Select
                       value={formData.wilaya}
                       onValueChange={(value) => setFormData({ ...formData, wilaya: value })}
+                      required={formData.deliveryMethod !== 'pickup'}
                     >
                       <SelectTrigger className="w-full font-body">
                         <SelectValue placeholder="اختر الولاية" />
@@ -203,10 +256,10 @@ const Checkout = () => {
                   <div className="bg-card rounded-xl p-6 border border-border">
                     <h2 className="text-xl font-arabic font-semibold mb-4">طريقة التوصيل</h2>
                     
-                    <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="grid sm:grid-cols-3 gap-4">
                       <button
                         type="button"
-                        onClick={() => setFormData({ ...formData, deliveryMethod: 'home' })}
+                        onClick={() => setFormData({ ...formData, deliveryMethod: 'home', store: '', pickupDate: undefined })}
                         className={`p-4 rounded-lg border-2 transition-all text-right ${
                           formData.deliveryMethod === 'home'
                             ? 'border-primary bg-primary/5'
@@ -221,7 +274,7 @@ const Checkout = () => {
 
                       <button
                         type="button"
-                        onClick={() => setFormData({ ...formData, deliveryMethod: 'bureau', address: '' })}
+                        onClick={() => setFormData({ ...formData, deliveryMethod: 'bureau', address: '', store: '', pickupDate: undefined })}
                         className={`p-4 rounded-lg border-2 transition-all text-right ${
                           formData.deliveryMethod === 'bureau'
                             ? 'border-primary bg-primary/5'
@@ -233,11 +286,24 @@ const Checkout = () => {
                         <p className="text-sm text-muted-foreground font-body">Bureau</p>
                         <p className="text-primary font-bold mt-2" dir="ltr">300 د.ج</p>
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, deliveryMethod: 'pickup', address: '', wilaya: '' })}
+                        className={`p-4 rounded-lg border-2 transition-all text-right ${
+                          formData.deliveryMethod === 'pickup'
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border hover:border-primary/50'
+                        }`}
+                      >
+                        <Store className={`w-8 h-8 mb-2 ${formData.deliveryMethod === 'pickup' ? 'text-primary' : 'text-muted-foreground'}`} />
+                        <h3 className="font-arabic font-semibold">الاستلام من المحل</h3>
+                        <p className="text-sm text-muted-foreground font-body">Retrait en magasin</p>
+                        <p className="text-green-600 font-bold mt-2">بدون مصاريف توصيل</p>
+                      </button>
                     </div>
 
-                    {/* Address field - only shown for home delivery */}
-                    {formData.deliveryMethod === 'home' && (
-                      <div className="mt-4">
+                    {/* Address field - only for home delivery */}
+                    <div className={`transition-all duration-500 ease-in-out overflow-hidden ${formData.deliveryMethod === 'home' ? 'max-h-96 mt-4' : 'max-h-0'}`}>
                         <label className="block font-body text-sm mb-2">
                           العنوان الكامل <span className="text-primary">*</span>
                         </label>
@@ -246,11 +312,60 @@ const Checkout = () => {
                           value={formData.address}
                           onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                           placeholder="الحي، الشارع، رقم المنزل..."
-                          required
+                          required={formData.deliveryMethod === 'home'}
                           className="font-body"
                         />
+                    </div>
+                    
+                    {/* Pickup location info - only for store pickup */}
+                    <div className={`transition-all duration-500 ease-in-out overflow-hidden ${formData.deliveryMethod === 'pickup' ? 'max-h-[30rem] mt-4' : 'max-h-0'}`}>
+                      <div className="bg-muted/50 border border-border rounded-lg p-4 space-y-4">
+                          <h3 className="font-arabic font-semibold text-lg text-center">اختر متجر الاستلام <span className="text-primary">*</span></h3>
+                          <div className="grid grid-cols-2 gap-4">
+                            {STORES.map(store => (
+                              <button
+                                key={store}
+                                type="button"
+                                onClick={() => setFormData({ ...formData, store })}
+                                className={`p-4 rounded-lg border-2 transition-all text-center ${
+                                  formData.store === store
+                                    ? 'border-primary bg-primary/5'
+                                    : 'border-border hover:border-primary/50'
+                                }`}
+                              >
+                                <h4 className="font-arabic font-semibold">{store}</h4>
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="border-t border-border"></div>
+
+                          <h3 className="font-arabic font-semibold text-lg text-center pt-2">اختر تاريخ الاستلام <span className="text-primary">*</span></h3>
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant={"outline"}
+                                className={cn(
+                                  "w-full justify-start text-right font-normal font-body",
+                                  !formData.pickupDate && "text-muted-foreground"
+                                )}
+                              >
+                                <CalendarIcon className="ml-4 h-4 w-4" />
+                                {formData.pickupDate ? format(formData.pickupDate, "PPP") : <span>اختر تاريخ</span>}
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0">
+                              <Calendar
+                                mode="single"
+                                selected={formData.pickupDate}
+                                onSelect={(date) => setFormData({ ...formData, pickupDate: date })}
+                                disabled={(date) => date < new Date(new Date().setHours(0,0,0,0))}
+                                initialFocus
+                              />
+                            </PopoverContent>
+                          </Popover>
                       </div>
-                    )}
+                    </div>
                   </div>
 
                   {/* Submit Button */}
